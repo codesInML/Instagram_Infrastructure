@@ -46,6 +46,7 @@ Resources:
       VPCSecurityGroups:
       - !GetAtt DBSecurityGroup.GroupId
       PubliclyAccessible: false
+      DBName: UdagramDB
       MultiAZ: !Ref DBmultiAZs
       AllocatedStorage: 20
       DBInstanceClass: db.t2.small
