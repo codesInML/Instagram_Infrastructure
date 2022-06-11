@@ -1,0 +1,18 @@
+[
+	{
+		"ParameterKey": "EnvironmentName",
+		"ParameterValue": "UdacityProject"
+	},
+	{
+		"ParameterKey": "myUsername",
+		"ParameterValue": "admin"
+	},
+	{
+		"ParameterKey": "myPassword",
+		"ParameterValue": "adminUser12345"
+	},
+	{
+		"ParameterKey": "DBmultiAZs",
+		"ParameterValue": "true"
+	}
+]

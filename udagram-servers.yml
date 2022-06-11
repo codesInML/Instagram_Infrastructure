@@ -1,0 +1,232 @@
+Description: >
+    Ifeoluwa Olubo - The underlining AWS Server Infrastructure for Udagram
+
+Parameters:
+  EnvironmentName:
+    Description: An environment name that will be prefixed to resource names
+    Type: String
+
+  MyLocalIPAddress:
+    Description: The ip address for my local computer
+    Type: String
+
+  JumpBoxKeyName:
+    Description: The key pair for your instances
+    Type: AWS::EC2::KeyPair::KeyName
+
+  PrivateServersKeyName:
+    Description: The key pair for your instances
+    Type: AWS::EC2::KeyPair::KeyName
+  
+Resources:
+  UdagramS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: ifeoluwaudacityudagrambucket
+    DeletionPolicy: "Retain"
+    
+  LoadBalancerSecGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow http to our load balancer
+      VpcId:
+        Fn::ImportValue:
+          !Sub "${EnvironmentName}-VPCID"
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: 0.0.0.0/0
+
+  WebServerSecGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow http to our hosts
+      VpcId:
+        Fn::ImportValue:
+          !Sub "${EnvironmentName}-VPCID"
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+      - IpProtocol: tcp
+        FromPort: 0
+        ToPort: 65535
+        CidrIp: 0.0.0.0/0
+
+  # IAM Role to allow EC2 instances mutate objects in S3
+  RoleForEC2Instances: 
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+              - ec2.amazonaws.com
+          Action:
+            - 'sts:AssumeRole'
+
+  ProfileWithRolesForOurInstances:
+    Type: AWS::IAM::InstanceProfile
+    Properties: 
+      Roles:
+      - !Ref RoleForEC2Instances
+
+  PoliciesForEC2Instances:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: EC2Policies
+      PolicyDocument:
+        Statement:
+        - Effect: Allow
+          Action:
+            - "s3:PutObject"
+            - "s3:GetObject"
+            - "s3:DeleteObject"
+          # Resource:
+          #   - arn:aws:s3:::ifeoluwaudacityudagrambucket/*
+          Resource: !Join [ "", [ "arn:aws:s3:::", !Ref UdagramS3Bucket, "/*" ] ]
+        - Effect: Allow
+          Action:
+            - "s3:ListBucket"
+          # Resource:
+          #   - arn:aws:s3:::ifeoluwaudacityudagrambucket
+          Resource: !Join [ "", [ "arn:aws:s3:::", !Ref UdagramS3Bucket ] ]
+      Roles:
+        - !Ref RoleForEC2Instances
+  
+  WebAppLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          apt-get update -y
+          apt-get install apache2 -y
+          systemctl start apache2.service
+          cd /var/www/html
+          echo "Udacity Demo Web Server Up and Running!" > index.html
+      ImageId: ami-005de95e8ff495156
+      KeyName: !Ref PrivateServersKeyName
+      IamInstanceProfile: !Ref ProfileWithRolesForOurInstances
+      SecurityGroups:
+      - Ref: WebServerSecGroup
+      InstanceType: t3.medium
+      BlockDeviceMappings:
+      - DeviceName: "/dev/sdk"
+        Ebs:
+          VolumeSize: '10'
+
+  WebAppGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:
+      - Fn::ImportValue: 
+          !Sub "${EnvironmentName}-PRIV-NETS"
+      LaunchConfigurationName:
+        Ref: WebAppLaunchConfig
+      MinSize: '4'
+      MaxSize: '5'
+      TargetGroupARNs:
+      - Ref: WebAppTargetGroup
+
+  WebAppLB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Subnets:
+      - Fn::ImportValue: !Sub "${EnvironmentName}-PUB1-SN"
+      - Fn::ImportValue: !Sub "${EnvironmentName}-PUB2-SN"
+      SecurityGroups:
+      - Ref: LoadBalancerSecGroup
+
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+      - Type: forward
+        TargetGroupArn:
+          Ref: WebAppTargetGroup
+      LoadBalancerArn:
+        Ref: WebAppLB
+      Port: '80'
+      Protocol: HTTP
+
+  ALBListenerRule:
+      Type: AWS::ElasticLoadBalancingV2::ListenerRule
+      Properties:
+        Actions:
+        - Type: forward
+          TargetGroupArn: !Ref 'WebAppTargetGroup'
+        Conditions:
+        - Field: path-pattern
+          Values: [/]
+        ListenerArn: !Ref 'Listener'
+        Priority: 1
+        
+  WebAppTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 300
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 8
+      HealthyThresholdCount: 2
+      Port: 80
+      Protocol: HTTP
+      UnhealthyThresholdCount: 5
+      VpcId: 
+        Fn::ImportValue:
+          Fn::Sub: "${EnvironmentName}-VPCID"
+
+  # Jump Box security group
+  BastionSecGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow SSH from local only
+      VpcId:
+        Fn::ImportValue:
+          !Sub "${EnvironmentName}-VPCID"
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: !Ref MyLocalIPAddress
+
+  # Jump Box
+  BastionHost: 
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: ami-005de95e8ff495156
+      KeyName: !Ref JumpBoxKeyName
+      SubnetId:
+        Fn::ImportValue: !Sub "${EnvironmentName}-PUB1-SN"
+      SecurityGroupIds:
+      - !GetAtt BastionSecGroup.GroupId
+
+Outputs:
+  WebAppLBDNS:
+    Description: The DNS Name for the Load balancer prefixed with http://
+    # Value: !GetAtt WebAppLB.DNSName
+    Value: !Join [ "://", [ "http", !GetAtt WebAppLB.DNSName ] ]
+    Export:
+      Name: !Sub ${EnvironmentName}-LBDNS
+  
+  WebServerSecurityGroupID:
+    Description: The security group for our instances
+    Value: !GetAtt WebServerSecGroup.GroupId
+    Export:
+      Name: !Sub ${EnvironmentName}-WebServerSecGroup

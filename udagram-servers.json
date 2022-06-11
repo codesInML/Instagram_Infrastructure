@@ -1,0 +1,18 @@
+[
+	{
+		"ParameterKey": "EnvironmentName",
+		"ParameterValue": "UdacityProject"
+	},
+	{
+		"ParameterKey": "MyLocalIPAddress",
+		"ParameterValue": "105.112.18.39/32"
+	},
+    {
+		"ParameterKey": "JumpBoxKeyName",
+		"ParameterValue": "udagram-jump-box"
+    },
+    {
+		"ParameterKey": "PrivateServersKeyName",
+		"ParameterValue": "udacity-private-servers"
+    }
+]
