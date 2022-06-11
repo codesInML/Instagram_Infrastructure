@@ -37,13 +37,14 @@ Resources:
       - IpProtocol: tcp
         FromPort: 3306
         ToPort: 3306
-        SourceSecurityGroupName: 
+        SourceSecurityGroupId: 
           Fn::ImportValue: !Sub "${EnvironmentName}-WebServerSecGroup"
 
   UdagramDB: 
     Type: "AWS::RDS::DBInstance"
     Properties: 
-      VPCSecurityGroups: !GetAtt DBSecurityGroup.GroupId
+      VPCSecurityGroups:
+      - !GetAtt DBSecurityGroup.GroupId
       PubliclyAccessible: false
       MultiAZ: !Ref DBmultiAZs
       AllocatedStorage: 20
